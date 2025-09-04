@@ -1,1 +1,1 @@
-The code will be open-sourced after the paper is accepted.
+We will open-source the relevant code and models as soon as possible.
