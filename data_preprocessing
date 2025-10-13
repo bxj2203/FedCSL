@@ -1,1 +1,187 @@
+import numpy as np
+import nibabel as nib
+import math
+from glob import glob
+from tqdm import tqdm
+from scipy.fft import fftn, ifftn
+import nibabel as nib
+import matplotlib.pyplot as plt
+from scipy.fft import fft2, ifft2
+import SimpleITK as sitk
+
+
+
+def judge_zero(x):
+    if x % 2 == 0:
+        return int(x/2),int(x/2)
+    else:
+        return int((x-1)/2),int((x+1)/2)
+
+def judge_integer(x,y,flag):
+    if x >= 0 and y >= 0:
+        if y - x < flag:
+            y = y + 1
+        return x,y
+    else:
+        if x < 0:
+            y = y + abs(x)
+            if y-x<flag:
+                y = y + 1
+            return abs(x),y
+
+def get_lesion_grade(client):
+    file = r"F:\Fed_CSL\LungDatasets\seg84\{}_train.txt".format(client)
+    with open(file,'r') as f:
+        sum_file = f.readlines()
+    for ff in tqdm(sum_file):
+        ff = ff.replace('\n','')
+        image = nib.load(r'F:\Fed_CSL\LungDatasets\EnhanceCT\{}\{}'.format(client,ff.replace('.npy','_0000.nii.gz')))
+        mask = nib.load(r'F:\Fed_CSL\LungDatasets\EnhanceCT\{}\{}'.format(client,ff.replace('.npy','_segmentation.nii.gz')))
+        imageData = image.get_fdata()
+        maskData = mask.get_fdata()
+
+        nonzero_indices = np.nonzero(maskData)
+        min_x, max_x = np.min(nonzero_indices[0]), np.max(nonzero_indices[0])
+        min_y, max_y = np.min(nonzero_indices[1]), np.max(nonzero_indices[1])
+        min_z, max_z = np.min(nonzero_indices[2]), np.max(nonzero_indices[2])
+
+        x_substruct = max_x - min_x
+        y_substruct = max_y - min_y
+        z = math.ceil((max_z-min_z)/10)*10
+
+        flag = z - (max_z-min_z)
+        if x_substruct <= 30 or y_substruct <= 30:
+            leftx_plus,rightx_plus = judge_zero(30-x_substruct)
+            lefty_plus, righty_plus = judge_zero(30 - y_substruct)
+            f = 30
+        elif 30 < x_substruct <= 60 or 30 < y_substruct <= 60:
+            leftx_plus,rightx_plus = judge_zero(60-x_substruct)
+            lefty_plus, righty_plus = judge_zero(60 - y_substruct)
+            f = 60
+        elif 60 < x_substruct <= 90 or 60 < y_substruct <= 90:
+            leftx_plus,rightx_plus = judge_zero(90-x_substruct)
+            lefty_plus, righty_plus = judge_zero(90 - y_substruct)
+            f = 90
+        elif 90 < x_substruct <= 120 or 90 < y_substruct <= 120:
+            leftx_plus,rightx_plus = judge_zero(120-x_substruct)
+            lefty_plus, righty_plus = judge_zero(120 - y_substruct)
+            f = 120
+        elif 120 < x_substruct <= 150 or 120 < y_substruct <= 150:
+            leftx_plus,rightx_plus = judge_zero(150-x_substruct)
+            lefty_plus, righty_plus = judge_zero(150 - y_substruct)
+            f = 150
+        elif 150 < x_substruct <= 180 or 150 < y_substruct <= 180:
+            leftx_plus,rightx_plus = judge_zero(180-x_substruct)
+            lefty_plus, righty_plus = judge_zero(180 - y_substruct)
+            f = 180
+        elif 180 < x_substruct <= 210 or 180 < y_substruct <= 210:
+            leftx_plus,rightx_plus = judge_zero(210-x_substruct)
+            lefty_plus, righty_plus = judge_zero(210 - y_substruct)
+            f = 210
+        else:
+            leftx_plus,rightx_plus = judge_zero(240-x_substruct)
+            lefty_plus, righty_plus = judge_zero(240 - y_substruct)
+            f = 240
+        left_x,right_x = judge_integer(min_x-leftx_plus,max_x +leftx_plus,f)
+        left_y, right_y = judge_integer(min_y - lefty_plus, max_y + lefty_plus,f)
+
+        z_start = z_stop = 0
+        if min_z-math.floor(flag/2) < 0:
+            z_start = 0
+            z_stop = max_z + math.ceil(flag/2) + abs(z_start)
+        else:
+            z_start = min_z-math.floor(flag/2)
+        if max_z + math.ceil(flag/2) > imageData.shape[2]:
+            z_stop = imageData.shape[2]
+            z_start = min_z-math.floor(flag/2) - (max_z + math.ceil(flag/2) - imageData.shape[2])
+        else:
+            z_stop = max_z + math.ceil(flag/2)
+
+
+        sliceimage = imageData[left_x:right_x, left_y:right_y, z_start:z_stop]
+        slicemask = maskData[left_x:right_x, left_y:right_y, z_start:z_stop]
+
+        slicedata = sliceimage*slicemask
+        save_data = nib.Nifti1Image(slicedata,image.affine)
+        slicemask = nib.Nifti1Image(slicemask,mask.affine)
+
+        nib.save(save_data,r'F:\Fed_CSL\LungDatasets\recurrent\lesion\{}\{}_0000.nii.gz'.format(client,
+                 ff.replace('.npy','')))
+        nib.save(slicemask,
+             r'F:\Fed_CSL\LungDatasets\recurrent\lesion\{}\{}_segmentation.nii.gz'.format(client,
+                 ff.replace('.npy', '')))
+
+def Flourier_trans(client):
+    paths = glob(r"F:\Fed_CSL\LungDatasets\recurrent\lesion\{}\*_0000.nii.gz".format(client))
+    for path in paths:
+        file = nib.load(path)
+        data = file.get_fdata()
+
+        fft_data = np.fft.fftn(data)
+        amplitude_spectrum = np.abs(fft_data)
+        phase_spectrum = np.angle(fft_data)
+
+        np.save(path.replace('lesion','Flourier').replace('0000.nii.gz','aml.npy'),amplitude_spectrum)
+
+        np.save(path.replace('lesion','Flourier').replace('0000.nii.gz','pha.npy'),phase_spectrum)
+
+def imageEng(image,mask):
+    flag = np.random.randint(0,2)
+    if flag == 0:
+        nii_data = np.fliplr(image)
+        nii_mask = np.fliplr(mask)
+    else:
+        nii_data = np.flipud(image)
+        nii_mask = np.flipud(mask)
+    return nii_data,nii_mask
+
+def Generate_newlesion(Generate_client):
+    pha_paths = glob(r"F:\Fed_CSL\LungDatasets\recurrent\Flourier\{}\\*_pha.npy".format(Generate_client))
+    other_client = ['1','2','3','4','5','6','7','8','9']
+    other_client.remove(Generate_client)
+    for o in other_client:
+        aml_paths = glob(
+            r"F:\Fed_CSL\LungDatasets\recurrent\Flourier\{}\*_aml.npy".format(
+                o))
+        for pha_p in pha_paths:
+            for aml_p in aml_paths:
+                pha = np.load(pha_p)
+                aml = np.load(aml_p)
+                if pha.shape[2] != aml.shape[2] or pha.shape[0] != aml.shape[0]:
+                    continue
+                reconstructed_fft = aml[:, :, :] * np.exp(1j * pha)
+                reconstructed_data = np.fft.ifftn(reconstructed_fft).real  # 取实部得到还原后的数据
+
+ 
+                mask = sitk.GetArrayFromImage(
+                    sitk.ReadImage(pha_p.replace('Flourier', 'lesion').replace('pha.npy', 'segmentation.nii.gz')))
+
+                g = np.transpose(reconstructed_data, (2, 1, 0))
+
+                ig = mask * g
+                data, maskE = imageEng(ig, mask)
+                if np.sum(maskE) < 5:
+                    continue
+                dataIg = sitk.GetImageFromArray(data)
+                sitk.WriteImage(dataIg, pha_p.replace('Flourier', 'new_lesion').replace('_pha.npy', '_{}.nii.gz'.format(
+                    aml_p.split('\\')[-1].split('_')[0] + '_' + aml_p.split('\\')[-1].split('_')[1])))
+
+                maskIg = sitk.GetImageFromArray(maskE)
+                sitk.WriteImage(maskIg, pha_p.replace('Flourier', 'new_lesion').replace('_pha.npy',
+                                                                                         '_{}_segmentation.nii.gz'.format(
+                                                                                             aml_p.split('\\')[-1].split(
+                                                                                                 '_')[0] + '_' +
+                                                                                             aml_p.split('\\')[-1].split(
+                                                                                                 '_')[1])))
+
+clients=['1','2','3','4','5','6','7','8','9']
+print('--------------Extract lesion--------------')
+for client in clients:
+    get_lesion_grade(client)
+print('--------------Fourier transform--------------')
+for client in clients:
+    Flourier_trans(client)
+print('--------------Generate new lesion--------------')
+for client in clients:
+    Generate_newlesion(client)
 
