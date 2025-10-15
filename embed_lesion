@@ -1,0 +1,101 @@
+import nibabel as nib
+import numpy as np
+import SimpleITK as sitk
+import random
+import os
+from glob import glob
+with open(r"path\GD_train.txt",'r') as f:
+    paths = f.readlines()
+new_lession_path = glob(r"path\*_segmentation.nii.gz") +\
+                   glob(r"path\*_segmentation.nii.gz")
+num = 0
+for p in paths:
+    is_enhanceCT = 0
+
+    path = os.path.join(r"path",p.replace('.npy\n','_0000.nii.gz'))
+    print(path)
+    flag = 1
+    need_EnhanceImage = nib.load(path).get_fdata()
+
+    lung_mask = nib.load(path.replace('seg84', 'lungarea')).get_fdata()
+    lession_mask = nib.load(path.replace('0000', 'segmentation')).get_fdata()
+
+    lung_indices = np.where(lung_mask == 1)
+    if np.sum(lung_mask) < 100:
+        continue
+
+    for i in range(flag):
+
+        overlap = True
+
+        while overlap:
+
+            lession = random.choice(new_lession_path)
+            new_lession = nib.load(lession.replace('_segmentation', '')).get_fdata()
+            new_lession_mask = nib.load(lession).get_fdata()
+            nonzero_indices = np.nonzero(new_lession_mask)
+            min_z, max_z = np.min(nonzero_indices[2]), np.max(nonzero_indices[2])
+            new_lession = new_lession[:,:,min_z:max_z]
+            new_lession_mask = new_lession_mask[:,:,min_z:max_z]
+            lung_index1 = np.random.randint(0, len(lung_indices[0]))
+            lung_index2 = np.random.randint(0, len(lung_indices[1]))
+            lung_index3 = np.random.randint(0, len(lung_indices[2]))
+            lung_x, lung_y, lung_z = lung_indices[0][lung_index1], lung_indices[1][lung_index2], lung_indices[2][
+                lung_index3]
+
+            overlap_region = lession_mask[lung_x: lung_x + new_lession.shape[0],
+                                         lung_y: lung_y + new_lession.shape[1],
+                                         lung_z: lung_z + new_lession.shape[2]]
+
+            zero_array = np.zeros((lung_mask.shape[0], lung_mask.shape[1], lung_mask.shape[2]))
+
+            zero_array[lung_x: lung_x + new_lession.shape[0],
+                                         lung_y: lung_y + new_lession.shape[1],
+                                         lung_z: lung_z + new_lession.shape[2]] = 1
+            #origin_lession[origin_lession!=1]=0
+            contains = np.sum(np.logical_and(lung_mask,zero_array))
+            contains1 = np.sum(np.logical_and(lession_mask, zero_array))
+
+            if overlap_region.shape != new_lession.shape:
+                continue
+
+            if np.sum(overlap_region * new_lession) > 0 or overlap_region.shape != new_lession.shape or np.sum(zero_array)!= contains or contains1!=0:
+
+                lession = random.choice(new_lession_path)
+                new_lession = nib.load(lession.replace('_segmentation', '')).get_fdata()
+                new_lession_mask = nib.load(lession).get_fdata()
+                lung_index1 = np.random.randint(0, len(lung_indices[0]))
+                lung_index2 = np.random.randint(0, len(lung_indices[1]))
+                lung_index3 = np.random.randint(0, len(lung_indices[2]))
+                lung_x, lung_y, lung_z = lung_indices[0][lung_index1], lung_indices[1][lung_index2], lung_indices[2][lung_index3]
+                overlap_region = lession_mask[lung_x: lung_x + new_lession.shape[0],
+                                         lung_y: lung_y + new_lession.shape[1],
+                                         lung_z: lung_z + new_lession.shape[2]]
+            else:
+                overlap = False
+
+        need_EnhanceImage[lung_x: lung_x + new_lession.shape[0],
+        lung_y: lung_y + new_lession.shape[1],
+        lung_z: lung_z + new_lession.shape[2]] = (1 - new_lession_mask) * need_EnhanceImage[
+                                                                          lung_x: lung_x + new_lession.shape[0],
+                                                                          lung_y: lung_y + new_lession.shape[1],
+                                                                          lung_z: lung_z + new_lession.shape[2]]
+
+
+        need_EnhanceImage[lung_x: lung_x + new_lession.shape[0],
+        lung_y: lung_y + new_lession.shape[1],
+        lung_z: lung_z + new_lession.shape[2]] += new_lession
+
+        lession_mask[lung_x: lung_x + new_lession.shape[0], lung_y: lung_y + new_lession.shape[1],
+        lung_z: lung_z + new_lession.shape[2]] += new_lession_mask
+
+
+
+    g = np.transpose(need_EnhanceImage,(2,1,0))
+    f_data = sitk.GetImageFromArray(g)
+    sitk.WriteImage(f_data, r'path\{}'.format(path.split('\\')[-1]))
+
+    gg = np.transpose(lession_mask,(2,1,0))
+    ff_data = sitk.GetImageFromArray(gg)
+    sitk.WriteImage(ff_data, r'path\{}'.format(path.split('\\')[-1].replace('0000','segmentation')))
+
